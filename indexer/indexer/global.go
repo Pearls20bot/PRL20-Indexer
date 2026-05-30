@@ -594,24 +594,29 @@ func (g *globalIndexer) applyOpCollect(payload []byte, senderAddr string, height
 
 	case "transfer":
 		amt, _ := strconv.ParseInt(op.Amt, 10, 64)
-		if amt <= 0 {
+		to := strings.TrimSpace(op.To)
+		if amt <= 0 || to == "" {
 			return nil, nil, ""
 		}
 		g.mu.Lock()
 		defer g.mu.Unlock()
-		to := strings.TrimSpace(op.To)
-		var touched [][2]string
-		if to != "" {
-			g.addNoLock(to, tick, amt)
-			Cache.Invalidate(to)
-			touched = append(touched, [2]string{to, tick})
+		if _, ok := g.deploys[tick]; !ok {
+			return nil, nil, ""
 		}
+		senderBal := int64(0)
+		if g.balances[senderAddr] != nil {
+			senderBal = g.balances[senderAddr][tick]
+		}
+		if amt > senderBal {
+			return nil, nil, ""
+		}
+		g.addNoLock(to, tick, amt)
+		Cache.Invalidate(to)
 		g.addNoLock(senderAddr, tick, -amt)
 		Cache.Invalidate(senderAddr)
-		touched = append(touched, [2]string{senderAddr, tick})
 		log.Printf("[GI] TRANSFER %s→%s %s %d",
 			short(senderAddr), short(to), strings.ToUpper(tick), amt)
-		return touched, nil, ""
+		return [][2]string{{to, tick}, {senderAddr, tick}}, nil, ""
 	}
 	return nil, nil, ""
 }
